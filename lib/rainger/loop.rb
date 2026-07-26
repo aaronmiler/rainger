@@ -8,8 +8,8 @@ module Rainger
 
     class Hooks
       def initialize
-        @on_assistant_message = ->(_msg) {}
-        @on_tool_result = ->(_msg) {}
+        @on_assistant_message = ->(_msg) { }
+        @on_tool_result = ->(_msg) { }
       end
 
       def on_assistant_message(&block)
