@@ -2,6 +2,7 @@ require "net/http"
 require "json"
 require "uri"
 require "active_support/core_ext/object/blank"
+require "active_support/core_ext/hash/indifferent_access"
 
 module Rainger
   class Client
@@ -10,7 +11,7 @@ module Rainger
     end
 
     # => parsed response hash (full body — callers keep digging choices/0/message, as today)
-    def chat(messages, model:, tools: nil, temperature: nil, max_tokens: nil)
+    def chat(messages, model: nil, tools: nil, temperature: nil, max_tokens: nil)
       resolved_model = @config.resolve_model(model)
       body = { model: resolved_model, messages: messages }
       body[:tools] = tools.map(&:definition) if tools.present?
@@ -25,7 +26,7 @@ module Rainger
     end
 
     # => Array<Array<Float>>
-    def embed(texts, model:)
+    def embed(texts, model: nil)
       resolved_model = @config.resolve_model(model)
 
       Instrumentation.instrument("embed", model: resolved_model) do |payload|
@@ -57,11 +58,22 @@ module Rainger
     end
 
     def self.safe_parse(str)
-      JSON.parse(str)
+      indifferent(JSON.parse(str))
     rescue JSON::ParserError
       nil
     end
     private_class_method :safe_parse
+
+    # Hash#with_indifferent_access already deep-converts nested hashes (including
+    # those inside arrays); a top-level Array just needs that applied per element.
+    def self.indifferent(value)
+      case value
+      when Hash then value.with_indifferent_access
+      when Array then value.map { |v| indifferent(v) }
+      else value
+      end
+    end
+    private_class_method :indifferent
 
     private
 

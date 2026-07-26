@@ -10,7 +10,7 @@ require "rainger/prompt"
 module Rainger
   class Configuration
     attr_accessor :base_url, :api_key, :app_name, :models, :app_dir,
-                  :connect_timeout, :read_timeout, :prompt_path
+                  :connect_timeout, :read_timeout, :prompt_path, :default_model
 
     def initialize
       @api_key = "none"
@@ -20,10 +20,14 @@ module Rainger
       @read_timeout = 300
     end
 
-    # model: a symbol resolves through `models` (string or 0-arity lambda);
-    # a string passes through to LiteLLM verbatim.
-    def resolve_model(model)
-      return model if model.is_a?(String)
+    # model: nil falls back to `default_model` (string or 0-arity lambda); a
+    # symbol resolves through `models` (string or 0-arity lambda); a string
+    # passes through to LiteLLM verbatim.
+    def resolve_model(model = nil)
+      model ||= default_model
+      raise ArgumentError, "No model given and no default_model configured" if model.nil?
+      return model.call.to_s if model.respond_to?(:call)
+      return model.to_s if model.is_a?(String)
 
       value = models.fetch(model) { raise ArgumentError, "Unknown model alias: #{model.inspect}" }
       value.respond_to?(:call) ? value.call.to_s : value.to_s

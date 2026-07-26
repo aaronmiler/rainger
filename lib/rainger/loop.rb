@@ -29,7 +29,7 @@ module Rainger
       end
     end
 
-    def self.run(messages:, model:, tools: [], context: {}, max_iterations: 5,
+    def self.run(messages:, model: nil, tools: [], context: {}, max_iterations: 5,
                  nudge: nil, strip_thinking: false, on_cap: :final_answer, client: Client.new)
       hooks = Hooks.new
       yield hooks if block_given?

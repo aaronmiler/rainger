@@ -32,6 +32,9 @@ Rainger.configure do |c|
   c.api_key  = ENV.fetch("LITELLM_API_KEY", "none")
   c.app_name = "delta"                       # User-Agent + instrumentation tag
 
+  # Used whenever a call site omits model:. String or 0-arity lambda.
+  c.default_model = -> { Setting.get("local_model") }
+
   # A symbol passed as model: resolves through this map (string or 0-arity
   # lambda); a string passes through to LiteLLM verbatim.
   c.models = {
@@ -47,7 +50,8 @@ end
 ## Client
 
 ```ruby
-Rainger.chat(messages, model: :local, tools: nil, temperature: nil, max_tokens: nil)
+Rainger.chat(messages, model: nil, tools: nil, temperature: nil, max_tokens: nil)
+# model: omit to use c.default_model; otherwise a models: alias or a literal string
 # => parsed response hash (full body — dig "choices", 0, "message" as usual)
 
 Rainger.embed(texts, model: "embed-model")

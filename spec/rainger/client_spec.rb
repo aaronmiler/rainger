@@ -19,6 +19,21 @@ RSpec.describe Rainger::Client do
       expect(response.dig("choices", 0, "message", "content")).to eq("hi")
     end
 
+    it "falls back to default_model when model: is omitted" do
+      Rainger.configuration.default_model = -> { "default-model" }
+      stub = stub_request(:post, "http://litellm.test/chat/completions")
+        .with(body: hash_including("model" => "default-model"))
+        .to_return(status: 200, body: { choices: [] }.to_json)
+
+      client.chat([{ role: "user", content: "hi" }])
+
+      expect(stub).to have_been_requested
+    end
+
+    it "raises ArgumentError when model: is omitted and no default_model is configured" do
+      expect { client.chat([{ role: "user", content: "hi" }]) }.to raise_error(ArgumentError, /No model given/)
+    end
+
     it "passes a literal model string through verbatim" do
       stub = stub_request(:post, "http://litellm.test/chat/completions")
         .with(body: hash_including("model" => "literal-model"))
@@ -82,6 +97,22 @@ RSpec.describe Rainger::Client do
 
     it "returns nil when nothing parses" do
       expect(described_class.extract_json("no json here")).to be_nil
+    end
+
+    it "returns a hash accessible by both string and symbol keys" do
+      parsed = described_class.extract_json("{\"a\": 1}")
+      expect(parsed[:a]).to eq(1)
+      expect(parsed["a"]).to eq(1)
+    end
+
+    it "gives indifferent access to nested hashes, including inside arrays" do
+      parsed = described_class.extract_json("{\"items\": [{\"name\": \"x\"}]}")
+      expect(parsed[:items].first[:name]).to eq("x")
+    end
+
+    it "gives indifferent access to hashes inside a top-level array" do
+      parsed = described_class.extract_json("[{\"a\": 1}, {\"a\": 2}]")
+      expect(parsed.map { |h| h[:a] }).to eq([1, 2])
     end
   end
 end
