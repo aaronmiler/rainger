@@ -96,10 +96,10 @@ module Rainger
       body = response.body
 
       klass =
-        if status == 429
-          RateLimited
-        elsif body.to_s.match?(/budget/i)
+        if body.to_s.match?(/budget/i)
           BudgetExceeded
+        elsif status == 429
+          RateLimited
         else
           APIError
         end

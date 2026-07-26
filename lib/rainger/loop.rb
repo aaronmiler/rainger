@@ -87,7 +87,7 @@ module Rainger
     end
 
     def request_message
-      response = @client.chat(@messages, model: @model, tools: @tools.map(&:definition).presence)
+      response = @client.chat(@messages, model: @model, tools: @tools.presence)
       response.dig("choices", 0, "message")
     end
 

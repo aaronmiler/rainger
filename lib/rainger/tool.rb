@@ -49,6 +49,10 @@ module Rainger
       end
 
       def definition
+        if @custom_schema && params.any?
+          raise ArgumentError, "#{self} declares both `param` and a custom `schema` block — use one or the other"
+        end
+
         @definition ||= {
           type: "function",
           function: {

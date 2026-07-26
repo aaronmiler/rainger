@@ -41,6 +41,18 @@ class ExplodingTool < Rainger::Tool
   end
 end
 
+class ConflictingTool < Rainger::Tool
+  tool_name "conflicting"
+  description "Declares both param and a custom schema"
+
+  param :query, :string, "The search query", required: true
+  schema { { type: "object", properties: {} } }
+
+  def call(query:)
+    query
+  end
+end
+
 RSpec.describe Rainger::Tool do
   describe ".definition" do
     it "builds a frozen OpenAI function definition from param declarations" do
@@ -51,6 +63,10 @@ RSpec.describe Rainger::Tool do
       expect(definition[:function][:name]).to eq("vault_search")
       expect(definition[:function][:parameters][:required]).to eq(["query"])
       expect(definition[:function][:parameters][:properties][:query][:type]).to eq("string")
+    end
+
+    it "raises when a tool declares both param and a custom schema block" do
+      expect { ConflictingTool.definition }.to raise_error(ArgumentError, /both `param` and a custom `schema`/)
     end
   end
 

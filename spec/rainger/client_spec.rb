@@ -57,6 +57,13 @@ RSpec.describe Rainger::Client do
       expect { client.chat([], model: :local) }.to raise_error(Rainger::BudgetExceeded)
     end
 
+    it "raises BudgetExceeded (not RateLimited) when a 429 body mentions budget" do
+      stub_request(:post, "http://litellm.test/chat/completions")
+        .to_return(status: 429, body: "Exceeded budget for this key")
+
+      expect { client.chat([], model: :local) }.to raise_error(Rainger::BudgetExceeded)
+    end
+
     it "raises a plain APIError otherwise" do
       stub_request(:post, "http://litellm.test/chat/completions").to_return(status: 500, body: "boom")
 
