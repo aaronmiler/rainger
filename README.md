@@ -28,6 +28,8 @@ gem "rainger", github: "..."
 
 ```ruby
 Rainger.configure do |c|
+  # Any path component (e.g. a proxy mounted at /v1) is preserved regardless
+  # of a trailing slash.
   c.base_url = ENV.fetch("LITELLM_BASE_URL")
   c.api_key  = ENV.fetch("LITELLM_API_KEY", "none")
   c.app_name = "delta"                       # User-Agent + instrumentation tag
@@ -120,7 +122,7 @@ result = Rainger::Loop.run(
   hooks.on_tool_result       { |msg| save_message(msg) }
 end
 
-result.content      # final answer string
+result.content      # final answer string; nil only with on_cap: :bail (see below)
 result.events       # { source: [...], side_effect: [...] } from emit()
 result.messages     # full transcript
 result.iterations

@@ -19,7 +19,7 @@ module Rainger
       body[:max_tokens] = max_tokens unless max_tokens.nil?
 
       Instrumentation.instrument("chat", model: resolved_model) do |payload|
-        response = post("/chat/completions", body)
+        response = post("chat/completions", body)
         payload[:usage] = response["usage"]
         response
       end
@@ -30,7 +30,7 @@ module Rainger
       resolved_model = @config.resolve_model(model)
 
       Instrumentation.instrument("embed", model: resolved_model) do |payload|
-        response = post("/embeddings", model: resolved_model, input: Array(texts))
+        response = post("embeddings", model: resolved_model, input: Array(texts))
         payload[:usage] = response["usage"]
         response["data"].map { |row| row["embedding"] }
       end
@@ -67,7 +67,11 @@ module Rainger
     private
 
     def post(path, body)
-      uri = URI.join(@config.base_url, path)
+      # URI.join treats a leading-slash path as absolute, silently discarding any
+      # path component of base_url (e.g. "/v1"). Normalize base_url to end with
+      # "/" and join a relative path so any base_url sub-path is preserved.
+      base = @config.base_url.end_with?("/") ? @config.base_url : "#{@config.base_url}/"
+      uri = URI.join(base, path)
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = uri.scheme == "https"
       http.open_timeout = @config.connect_timeout

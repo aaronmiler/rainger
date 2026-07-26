@@ -19,6 +19,16 @@ RSpec.describe Rainger::Client do
       expect(response.dig("choices", 0, "message", "content")).to eq("hi")
     end
 
+    it "preserves a base_url sub-path (e.g. /v1) instead of URI.join discarding it" do
+      Rainger.configuration.base_url = "http://litellm.test/v1"
+      stub = stub_request(:post, "http://litellm.test/v1/chat/completions")
+        .to_return(status: 200, body: { choices: [] }.to_json)
+
+      client.chat([{ role: "user", content: "hi" }], model: :local)
+
+      expect(stub).to have_been_requested
+    end
+
     it "falls back to default_model when model: is omitted" do
       Rainger.configuration.default_model = -> { "default-model" }
       stub = stub_request(:post, "http://litellm.test/chat/completions")
