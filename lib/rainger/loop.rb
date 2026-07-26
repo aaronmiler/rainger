@@ -83,7 +83,7 @@ module Rainger
     def apply_nudge(iteration)
       return unless @nudge && iteration == @nudge[:at]
 
-      @messages << { role: "user", content: @nudge[:content] }
+      @messages << Rainger.indifferent({ role: "user", content: @nudge[:content] })
     end
 
     def request_message
@@ -104,7 +104,7 @@ module Rainger
 
       @events.concat(result[:events])
 
-      tool_message = { role: "tool", tool_call_id: call["id"], content: result[:content] }
+      tool_message = Rainger.indifferent({ role: "tool", tool_call_id: call["id"], content: result[:content] })
       @messages << tool_message
       @hooks.tool_result(tool_message)
     end
@@ -114,7 +114,7 @@ module Rainger
     def capped_result(iterations)
       return build_result(nil, iterations, capped: true) if @on_cap == :bail
 
-      @messages << { role: "user", content: "Please provide your final answer now, without using any more tools." }
+      @messages << Rainger.indifferent({ role: "user", content: "Please provide your final answer now, without using any more tools." })
       response = @client.chat(@messages, model: @model)
       message = response.dig("choices", 0, "message")
       @messages << message

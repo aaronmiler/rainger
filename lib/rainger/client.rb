@@ -58,22 +58,11 @@ module Rainger
     end
 
     def self.safe_parse(str)
-      indifferent(JSON.parse(str))
+      Rainger.parse_json(str)
     rescue JSON::ParserError
       nil
     end
     private_class_method :safe_parse
-
-    # Hash#with_indifferent_access already deep-converts nested hashes (including
-    # those inside arrays); a top-level Array just needs that applied per element.
-    def self.indifferent(value)
-      case value
-      when Hash then value.with_indifferent_access
-      when Array then value.map { |v| indifferent(v) }
-      else value
-      end
-    end
-    private_class_method :indifferent
 
     private
 
@@ -99,7 +88,7 @@ module Rainger
 
       raise_api_error(response) unless response.is_a?(Net::HTTPSuccess)
 
-      JSON.parse(response.body)
+      Rainger.parse_json(response.body)
     end
 
     def raise_api_error(response)

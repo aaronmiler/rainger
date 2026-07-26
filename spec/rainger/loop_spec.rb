@@ -132,4 +132,30 @@ RSpec.describe Rainger::Loop do
     expect(assistant_messages.size).to eq(2)
     expect(tool_results.size).to eq(1)
   end
+
+  it "gives indifferent access to hand-built messages (nudge, tool-result, capped final-answer)" do
+    client = instance_double(Rainger::Client)
+    tool_call = { "id" => "call_1", "function" => { "name" => "echo", "arguments" => { "text" => "hi" }.to_json } }
+    allow(client).to receive(:chat).and_return(
+      { "choices" => [{ "message" => message(role: "assistant", tool_calls: [tool_call]) }] },
+      { "choices" => [{ "message" => message(role: "assistant", content: "forced answer") }] }
+    )
+
+    result = described_class.run(
+      messages: [{ role: "user", content: "hi" }], model: :local, tools: [EchoTool],
+      nudge: { at: 1, content: "hurry up" }, max_iterations: 1, client: client
+    )
+
+    tool_message = result.messages.find { |m| m[:role] == "tool" }
+    expect(tool_message[:tool_call_id]).to eq("call_1")
+    expect(tool_message["tool_call_id"]).to eq("call_1")
+
+    nudge_message = result.messages.find { |m| m["content"] == "hurry up" }
+    expect(nudge_message[:content]).to eq("hurry up")
+
+    # The capped "please answer now" prompt Loop hand-builds — not the model's
+    # response, which arrives however the (real) Client#post returned it.
+    capped_prompt = result.messages.find { |m| m["content"]&.include?("final answer now") }
+    expect(capped_prompt[:content]).to eq(capped_prompt["content"])
+  end
 end

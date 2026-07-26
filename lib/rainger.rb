@@ -1,3 +1,4 @@
+require "json"
 require "rainger/version"
 require "rainger/errors"
 require "rainger/instrumentation"
@@ -58,6 +59,24 @@ module Rainger
 
     def extract_json(text)
       Client.extract_json(text)
+    end
+
+    # Hash#with_indifferent_access already deep-converts nested hashes (including
+    # those inside arrays); a top-level Array just needs that applied per element.
+    # Shared so every hash flowing through the gem (parsed API responses, hand-built
+    # tool/nudge messages) uses the same string/symbol-agnostic access.
+    def indifferent(value)
+      case value
+      when Hash then value.with_indifferent_access
+      when Array then value.map { |v| indifferent(v) }
+      else value
+      end
+    end
+
+    # JSON.parse + indifferent, for the two spots (raw API responses, extract_json's
+    # fenced/braced matches) that always pair the two.
+    def parse_json(str)
+      indifferent(JSON.parse(str))
     end
   end
 end
