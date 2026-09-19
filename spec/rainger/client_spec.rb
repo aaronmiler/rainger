@@ -87,6 +87,115 @@ RSpec.describe Rainger::Client do
     end
   end
 
+  describe "#chat with stream: true" do
+    def sse_body(*chunks)
+      chunks.map { |c| "data: #{c.to_json}\n\n" }.join + "data: [DONE]\n\n"
+    end
+
+    it "raises ArgumentError when no block is given" do
+      expect { client.chat([], model: :local, stream: true) }
+        .to raise_error(ArgumentError, /requires a block/)
+    end
+
+    it "sends stream: true in the request body" do
+      stub = stub_request(:post, "http://litellm.test/chat/completions")
+        .with(body: hash_including("stream" => true))
+        .to_return(status: 200, headers: { "Content-Type" => "text/event-stream" }, body: sse_body)
+
+      client.chat([], model: :local, stream: true) { |_chunk| }
+
+      expect(stub).to have_been_requested
+    end
+
+    it "yields each parsed delta chunk to the block" do
+      stub_request(:post, "http://litellm.test/chat/completions").to_return(
+        status: 200,
+        headers: { "Content-Type" => "text/event-stream" },
+        body: sse_body(
+          { choices: [{ index: 0, delta: { role: "assistant", content: "Hel" } }] },
+          { choices: [{ index: 0, delta: { content: "lo" } }] },
+          { choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }
+        )
+      )
+
+      received = []
+      client.chat([], model: :local, stream: true) { |chunk| received << chunk }
+
+      expect(received.size).to eq(3)
+      expect(received.first.dig("choices", 0, "delta", "content")).to eq("Hel")
+    end
+
+    it "returns the deltas assembled into a response hash shaped like the non-streaming path" do
+      stub_request(:post, "http://litellm.test/chat/completions").to_return(
+        status: 200,
+        headers: { "Content-Type" => "text/event-stream" },
+        body: sse_body(
+          { choices: [{ index: 0, delta: { role: "assistant", content: "Hel" } }] },
+          { choices: [{ index: 0, delta: { content: "lo" } }] },
+          { choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { total_tokens: 7 } }
+        )
+      )
+
+      response = client.chat([], model: :local, stream: true) { |_chunk| }
+
+      expect(response.dig("choices", 0, "message", "content")).to eq("Hello")
+      expect(response.dig("choices", 0, "message", "role")).to eq("assistant")
+      expect(response.dig("choices", 0, "finish_reason")).to eq("stop")
+      expect(response.dig("usage", "total_tokens")).to eq(7)
+    end
+
+    it "assembles streamed tool_call argument fragments" do
+      stub_request(:post, "http://litellm.test/chat/completions").to_return(
+        status: 200,
+        headers: { "Content-Type" => "text/event-stream" },
+        body: sse_body(
+          {
+            choices: [{
+              index: 0,
+              delta: {
+                role: "assistant",
+                tool_calls: [{ index: 0, id: "call_1", type: "function",
+                               function: { name: "search", arguments: "{\"q\":" } }]
+              }
+            }]
+          },
+          {
+            choices: [{
+              index: 0,
+              delta: { tool_calls: [{ index: 0, function: { arguments: "\"hi\"}" } }] }
+            }]
+          }
+        )
+      )
+
+      response = client.chat([], model: :local, stream: true) { |_chunk| }
+      tool_call = response.dig("choices", 0, "message", "tool_calls", 0)
+
+      expect(tool_call["id"]).to eq("call_1")
+      expect(tool_call.dig("function", "name")).to eq("search")
+      expect(tool_call.dig("function", "arguments")).to eq('{"q":"hi"}')
+    end
+
+    it "raises RateLimited on a 429" do
+      stub_request(:post, "http://litellm.test/chat/completions").to_return(status: 429, body: "slow down")
+
+      expect { client.chat([], model: :local, stream: true) { |_chunk| } }.to raise_error(Rainger::RateLimited)
+    end
+
+    it "raises BudgetExceeded when the error body mentions budget" do
+      stub_request(:post, "http://litellm.test/chat/completions")
+        .to_return(status: 403, body: "Exceeded budget for this key")
+
+      expect { client.chat([], model: :local, stream: true) { |_chunk| } }.to raise_error(Rainger::BudgetExceeded)
+    end
+
+    it "wraps connection failures" do
+      stub_request(:post, "http://litellm.test/chat/completions").to_timeout
+
+      expect { client.chat([], model: :local, stream: true) { |_chunk| } }.to raise_error(Rainger::ConnectionError)
+    end
+  end
+
   describe "#embed" do
     it "returns an array of embedding vectors" do
       stub_request(:post, "http://litellm.test/embeddings")
