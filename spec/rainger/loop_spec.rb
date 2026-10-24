@@ -31,6 +31,22 @@ RSpec.describe Rainger::Loop do
     expect(result).not_to be_capped
   end
 
+  it "passes reasoning: through to every chat call, including the capped final answer" do
+    client = instance_double(Rainger::Client)
+    tool_call = { "id" => "call_1", "function" => { "name" => "echo", "arguments" => { "text" => "hi" }.to_json } }
+    allow(client).to receive(:chat).and_return(
+      { "choices" => [{ "message" => message(role: "assistant", tool_calls: [tool_call]) }] },
+      { "choices" => [{ "message" => message(role: "assistant", content: "final") }] }
+    )
+
+    described_class.run(
+      messages: [{ role: "user", content: "hi" }], model: :local, tools: [EchoTool],
+      max_iterations: 1, reasoning: :none, client: client
+    )
+
+    expect(client).to have_received(:chat).with(anything, hash_including(reasoning: :none)).twice
+  end
+
   it "dispatches tool calls, feeds results back, and collects emitted events" do
     client = instance_double(Rainger::Client)
     tool_call = { "id" => "call_1", "function" => { "name" => "echo", "arguments" => { "text" => "hi" }.to_json } }
@@ -58,7 +74,7 @@ RSpec.describe Rainger::Loop do
 
     loop_runner = described_class.new(
       messages: [{ role: "user", content: "hi" }], model: :local, tools: [EchoTool], context: {},
-      max_iterations: 999, nudge: nil, strip_thinking: false, on_cap: :bail, client: client,
+      max_iterations: 999, nudge: nil, strip_thinking: false, reasoning: nil, on_cap: :bail, client: client,
       hooks: described_class::Hooks.new
     )
 

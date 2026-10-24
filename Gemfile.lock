@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    rainger (0.1.0)
+    rainger (0.2.0)
       activesupport (>= 6.0)
 
 GEM

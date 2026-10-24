@@ -54,6 +54,48 @@ RSpec.describe Rainger::Client do
       expect(stub).to have_been_requested
     end
 
+    it "sends a per-call reasoning: symbol as reasoning_effort" do
+      stub = stub_request(:post, "http://litellm.test/chat/completions")
+        .with(body: hash_including("reasoning_effort" => "high"))
+        .to_return(status: 200, body: { choices: [] }.to_json)
+
+      client.chat([{ role: "user", content: "hi" }], model: :local, reasoning: :high)
+
+      expect(stub).to have_been_requested
+    end
+
+    it "falls back to the configured reasoning (lambda) when reasoning: is omitted" do
+      Rainger.configuration.reasoning = -> { :none }
+      stub = stub_request(:post, "http://litellm.test/chat/completions")
+        .with(body: hash_including("reasoning_effort" => "none"))
+        .to_return(status: 200, body: { choices: [] }.to_json)
+
+      client.chat([{ role: "user", content: "hi" }], model: :local)
+
+      expect(stub).to have_been_requested
+    end
+
+    it "lets a per-call reasoning: override the configured default" do
+      Rainger.configuration.reasoning = :none
+      stub = stub_request(:post, "http://litellm.test/chat/completions")
+        .with(body: hash_including("reasoning_effort" => "medium"))
+        .to_return(status: 200, body: { choices: [] }.to_json)
+
+      client.chat([{ role: "user", content: "hi" }], model: :local, reasoning: :medium)
+
+      expect(stub).to have_been_requested
+    end
+
+    it "omits reasoning_effort when nothing is configured" do
+      stub = stub_request(:post, "http://litellm.test/chat/completions")
+        .with { |req| !JSON.parse(req.body).key?("reasoning_effort") }
+        .to_return(status: 200, body: { choices: [] }.to_json)
+
+      client.chat([{ role: "user", content: "hi" }], model: :local)
+
+      expect(stub).to have_been_requested
+    end
+
     it "raises RateLimited on a 429" do
       stub_request(:post, "http://litellm.test/chat/completions").to_return(status: 429, body: "slow down")
 
@@ -67,6 +109,34 @@ RSpec.describe Rainger::Client do
       expect { client.chat([], model: :local) }.to raise_error(Rainger::BudgetExceeded)
     end
 
+    it "raises BudgetExceeded on a Bifrost 402 and exposes its error_type" do
+      body = {
+        type: "budget_exceeded", status_code: 402,
+        error: { message: "Budget exceeded: vk_model_config * budget exceeded: 0.0010 >= 0.0010 dollars" }
+      }.to_json
+      stub_request(:post, "http://litellm.test/chat/completions").to_return(status: 402, body: body)
+
+      expect { client.chat([], model: :local) }.to raise_error(Rainger::BudgetExceeded) { |e|
+        expect(e.error_type).to eq("budget_exceeded")
+      }
+    end
+
+    it "raises BudgetExceeded on a 402 even without budget wording" do
+      stub_request(:post, "http://litellm.test/chat/completions").to_return(status: 402, body: "Payment Required")
+
+      expect { client.chat([], model: :local) }.to raise_error(Rainger::BudgetExceeded)
+    end
+
+    it "exposes a non-budget refusal's type on a plain APIError" do
+      body = { type: "model_blocked", status_code: 403, error: { message: "Model not allowed" } }.to_json
+      stub_request(:post, "http://litellm.test/chat/completions").to_return(status: 403, body: body)
+
+      expect { client.chat([], model: :local) }.to raise_error(Rainger::APIError) { |e|
+        expect(e).not_to be_a(Rainger::BudgetExceeded)
+        expect(e.error_type).to eq("model_blocked")
+      }
+    end
+
     it "raises BudgetExceeded (not RateLimited) when a 429 body mentions budget" do
       stub_request(:post, "http://litellm.test/chat/completions")
         .to_return(status: 429, body: "Exceeded budget for this key")
@@ -77,7 +147,7 @@ RSpec.describe Rainger::Client do
     it "raises a plain APIError otherwise" do
       stub_request(:post, "http://litellm.test/chat/completions").to_return(status: 500, body: "boom")
 
-      expect { client.chat([], model: :local) }.to raise_error(Rainger::APIError)
+      expect { client.chat([], model: :local) }.to raise_error(Rainger::APIError) { |e| expect(e.error_type).to be_nil }
     end
 
     it "wraps connection failures" do

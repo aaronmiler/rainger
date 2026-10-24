@@ -7,9 +7,9 @@ tools, and policies, but stops re-implementing the mechanics.
 ## Design principles
 
 - **OpenAI wire format, no provider abstraction.** The client speaks plain OpenAI
-  HTTP — no per-provider adapters. It's built and tested against a LiteLLM proxy,
-  but anything speaking the same wire format works; `BudgetExceeded` specifically
-  matches LiteLLM's error shape.
+  HTTP — no per-provider adapters. It's built and tested against LiteLLM and
+  Bifrost proxies, but anything speaking the same wire format works;
+  `BudgetExceeded` recognizes both proxies' budget error shapes.
 - **The gem owns mechanics, apps own policy.** Tool definitions, prompts, routing
   maps, and persistence live in the app; JSON-schema generation, dispatch, the loop,
   and error handling live in the gem.
@@ -38,11 +38,17 @@ Rainger.configure do |c|
   c.default_model = -> { Setting.get("local_model") }
 
   # A symbol passed as model: resolves through this map (string or 0-arity
-  # lambda); a string passes through to LiteLLM verbatim.
+  # lambda); a string passes through to the proxy verbatim.
   c.models = {
     local: -> { Setting.get("local_model") },
     cloud: -> { Setting.get("cloud_model") }
   }
+
+  # Sent as OpenAI's `reasoning_effort` on every chat call unless overridden
+  # per call. Symbol, string, or 0-arity lambda; nil (default) omits it.
+  # :none disables thinking (e.g. Gemma/Qwen on Ollama); levels beyond on/off
+  # are interpreted per provider by the proxy.
+  c.reasoning = :none
 
   c.app_dir = "rainger"        # app/rainger — see "App-side conventions" below
   # c.prompt_path = Rails.root.join("app/prompts")  # override Prompt's default dir
@@ -52,8 +58,9 @@ end
 ## Client
 
 ```ruby
-Rainger.chat(messages, model: nil, tools: nil, temperature: nil, max_tokens: nil)
+Rainger.chat(messages, model: nil, tools: nil, temperature: nil, max_tokens: nil, reasoning: nil)
 # model: omit to use c.default_model; otherwise a models: alias or a literal string
+# reasoning: omit to use c.reasoning; otherwise :none, :low, :medium, :high, ...
 # => parsed response hash (full body — dig "choices", 0, "message" as usual)
 
 Rainger.embed(texts, model: "embed-model")
@@ -64,9 +71,10 @@ Rainger.extract_json(text)
 #    fenced ```json block, falls back to the outermost {...} / [...]
 ```
 
-Errors: `Rainger::APIError` (status + truncated body), `Rainger::ConnectionError`,
-with `RateLimited` (429) and `BudgetExceeded` (LiteLLM budget error shape)
-subclasses. Every call emits `rainger.chat` / `rainger.embed` `AS::Notifications`
+Errors: `Rainger::APIError` (status, truncated body, and `error_type` — the proxy's
+top-level `type` such as Bifrost's `"model_blocked"`, else nil),
+`Rainger::ConnectionError`, with `RateLimited` (429) and `BudgetExceeded` (402,
+`type: "budget_exceeded"`, or a body mentioning budget) subclasses. Every call emits `rainger.chat` / `rainger.embed` `AS::Notifications`
 events carrying model, duration, and the response's `usage` token counts.
 
 ## Tool DSL
@@ -92,7 +100,7 @@ end
   schema. Anything the declarative form can't express drops to a raw `schema { ... }`
   block.
 - `.definition` is the frozen `{type: "function", function: {...}}` hash passed to
-  LiteLLM — always derived, never hand-written.
+  the proxy — always derived, never hand-written.
 - `#call(**args)` receives keyword args parsed from the model's JSON; unknown keys
   are dropped so a hallucinated argument can't crash dispatch.
 - `emit(kind, payload)` is the out-of-band channel for sources/side effects,
@@ -116,7 +124,8 @@ result = Rainger::Loop.run(
   context:  { default_week_of: week_of },   # handed to every tool instance
   max_iterations: 6,                        # default 5; gem clamps to HARD_CAP (10)
   nudge: { at: 3, content: "Synthesize what you have; only search again if critical info is missing." },
-  strip_thinking: true                      # remove <think>/<thinking> blocks from the answer
+  strip_thinking: true,                     # remove <think>/<thinking> blocks from the answer
+  reasoning: :none                          # per-loop override of c.reasoning
 ) do |hooks|
   hooks.on_assistant_message { |msg| save_message(msg) }   # incl. tool_calls
   hooks.on_tool_result       { |msg| save_message(msg) }

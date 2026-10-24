@@ -12,7 +12,8 @@ require "rainger/prompt"
 module Rainger
   class Configuration
     attr_accessor :base_url, :api_key, :app_name, :models, :app_dir,
-                  :connect_timeout, :read_timeout, :prompt_path, :default_model
+                  :connect_timeout, :read_timeout, :prompt_path, :default_model,
+                  :reasoning
 
     def initialize
       @api_key = "none"
@@ -24,7 +25,7 @@ module Rainger
 
     # model: nil falls back to `default_model` (string or 0-arity lambda); a
     # symbol resolves through `models` (string or 0-arity lambda); a string
-    # passes through to LiteLLM verbatim.
+    # passes through to the proxy verbatim.
     def resolve_model(model = nil)
       model ||= default_model
       raise ArgumentError, "No model given and no default_model configured" if model.nil?
@@ -33,6 +34,15 @@ module Rainger
 
       value = models.fetch(model) { raise ArgumentError, "Unknown model alias: #{model.inspect}" }
       value.respond_to?(:call) ? value.call.to_s : value.to_s
+    end
+
+    # reasoning: nil falls back to the configured `reasoning` (symbol, string,
+    # or 0-arity lambda). Sent as OpenAI's `reasoning_effort` (:none, :low,
+    # :medium, :high, ...); nil means omit it and take the provider default.
+    def resolve_reasoning(reasoning = nil)
+      reasoning ||= self.reasoning
+      reasoning = reasoning.call if reasoning.respond_to?(:call)
+      reasoning&.to_s
     end
   end
 

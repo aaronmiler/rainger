@@ -4,7 +4,7 @@ require "active_support/core_ext/string/inflections"
 module Rainger
   # Subclass this, declare params, define #call. The class *is* the JSON
   # schema generator and the dispatcher — .definition is what you hand to
-  # LiteLLM, .dispatch is what the Loop calls when the model picks this tool.
+  # the proxy, .dispatch is what the Loop calls when the model picks this tool.
   class Tool
     class << self
       def tool_name(value = nil)

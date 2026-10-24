@@ -15,12 +15,15 @@ module Rainger
     # stream: true requires a block. The block receives each parsed delta chunk as
     # it arrives; the method itself still returns the fully-assembled response hash
     # (same shape as the non-streaming path) once the stream ends.
-    def chat(messages, model: nil, tools: nil, temperature: nil, max_tokens: nil, stream: false, &block)
+    def chat(messages, model: nil, tools: nil, temperature: nil, max_tokens: nil, reasoning: nil, stream: false,
+             &block)
       resolved_model = @config.resolve_model(model)
       body = { model: resolved_model, messages: messages }
       body[:tools] = tools.map(&:definition) if tools.present?
       body[:temperature] = temperature unless temperature.nil?
       body[:max_tokens] = max_tokens unless max_tokens.nil?
+      reasoning_effort = @config.resolve_reasoning(reasoning)
+      body[:reasoning_effort] = reasoning_effort unless reasoning_effort.nil?
 
       if stream
         raise ArgumentError, "stream: true requires a block to receive chunks" unless block
@@ -133,7 +136,7 @@ module Rainger
 
     # A single SSE frame is one or more "field: value" lines separated by "\n\n".
     # We only care about "data: ..."; "[DONE]" marks the end of the stream and
-    # every other field (event:, id:, comments) is not something LiteLLM sends here.
+    # every other field (event:, id:, comments) is not something the proxy sends here.
     def parse_sse_event(event)
       data_lines = event.each_line.select { |line| line.start_with?("data:") }
       return nil if data_lines.empty?
@@ -173,8 +176,10 @@ module Rainger
       status = response.code.to_i
       body = response.body
 
+      # 402 / type "budget_exceeded" is Bifrost's contract; the body match is
+      # LiteLLM's (no dedicated status; matched on wording).
       klass =
-        if body.to_s.match?(/budget/i)
+        if status == 402 || APIError.parse_error_type(body) == "budget_exceeded" || body.to_s.match?(/budget/i)
           BudgetExceeded
         elsif status == 429
           RateLimited

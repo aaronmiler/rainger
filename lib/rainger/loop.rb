@@ -30,19 +30,20 @@ module Rainger
     end
 
     def self.run(messages:, model: nil, tools: [], context: {}, max_iterations: 5,
-                 nudge: nil, strip_thinking: false, on_cap: :final_answer, client: Client.new)
+                 nudge: nil, strip_thinking: false, reasoning: nil, on_cap: :final_answer,
+                 client: Client.new)
       hooks = Hooks.new
       yield hooks if block_given?
 
       new(
         messages: messages.dup, model: model, tools: tools, context: context,
         max_iterations: max_iterations, nudge: nudge, strip_thinking: strip_thinking,
-        on_cap: on_cap, client: client, hooks: hooks
+        reasoning: reasoning, on_cap: on_cap, client: client, hooks: hooks
       ).run
     end
 
     def initialize(messages:, model:, tools:, context:, max_iterations:, nudge:,
-                    strip_thinking:, on_cap:, client:, hooks:)
+                    strip_thinking:, reasoning:, on_cap:, client:, hooks:)
       @messages = messages
       @model = model
       @tools = tools
@@ -51,6 +52,7 @@ module Rainger
       @max_iterations = [max_iterations, HARD_CAP].min
       @nudge = nudge
       @strip_thinking = strip_thinking
+      @reasoning = reasoning
       @on_cap = on_cap
       @client = client
       @hooks = hooks
@@ -87,7 +89,7 @@ module Rainger
     end
 
     def request_message
-      response = @client.chat(@messages, model: @model, tools: @tools.presence)
+      response = @client.chat(@messages, model: @model, tools: @tools.presence, reasoning: @reasoning)
       response.dig("choices", 0, "message")
     end
 
@@ -115,7 +117,7 @@ module Rainger
       return build_result(nil, iterations, capped: true) if @on_cap == :bail
 
       @messages << Rainger.indifferent({ role: "user", content: "Please provide your final answer now, without using any more tools." })
-      response = @client.chat(@messages, model: @model)
+      response = @client.chat(@messages, model: @model, reasoning: @reasoning)
       message = response.dig("choices", 0, "message")
       @messages << message
       @hooks.assistant_message(message)
